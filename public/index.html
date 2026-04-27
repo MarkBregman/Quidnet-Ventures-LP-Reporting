@@ -330,6 +330,30 @@ const ecosystemData = [];
 const aheadData     = [];
 const partnerNotes  = {};
 
+// ── Auth ─────────────────────────────────────────────────────────────────────
+var _appToken = sessionStorage.getItem('qv_token') || '';
+
+async function apiFetch(url, opts) {
+  opts = opts || {};
+  opts.headers = opts.headers || {};
+  if (_appToken) opts.headers['x-app-token'] = _appToken;
+  var res = await fetch(url, opts);
+  if (res.status === 401) {
+    var pw = prompt('Enter app password:');
+    if (!pw) throw new Error('Password required');
+    _appToken = pw;
+    sessionStorage.setItem('qv_token', pw);
+    opts.headers['x-app-token'] = pw;
+    res = await fetch(url, opts);
+    if (res.status === 401) {
+      sessionStorage.removeItem('qv_token');
+      _appToken = '';
+      throw new Error('Wrong password');
+    }
+  }
+  return res;
+}
+
 // ── Utility ──────────────────────────────────────────────────────────────────
 function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function collectTextAreas(containerId){
@@ -352,7 +376,7 @@ function nav(el){
 // ── Settings ─────────────────────────────────────────────────────────────────
 async function loadSettings(){
   try{
-    var s=await fetch('/api/settings').then(r=>r.json());
+    var s=await apiFetch('/api/settings').then(r=>r.json());
     document.getElementById('s-key').value       = s.airtableKey||'';
     document.getElementById('s-base').value      = s.baseId||'';
     document.getElementById('s-table').value     = s.tableName||'';
@@ -368,7 +392,7 @@ async function saveSettings(){
   };
   var st=document.getElementById('settings-status');
   try{
-    await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    await apiFetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     st.textContent='✓ Saved'; st.className='status-msg';
     setTimeout(()=>st.textContent='',2500);
   }catch(e){ st.textContent='Error saving'; st.className='status-msg error'; }
@@ -384,7 +408,7 @@ async function loadAirtable(){
   st.textContent='';
   try{
     var params=new URLSearchParams({quarter,fund});
-    var r=await fetch('/api/airtable?'+params);
+    var r=await apiFetch('/api/airtable?'+params);
     if(!r.ok){var e=await r.json();throw new Error(e.error);}
     var data=await r.json();
     portfolioData.length=0;
@@ -622,7 +646,7 @@ async function improveSection(id){
   var btns=document.querySelectorAll('.btn-improve[data-sid="'+id+'"]');
   btns.forEach(function(b){b.textContent='Improving…';b.disabled=true;});
   try{
-    var res=await fetch('/api/improve-section',{
+    var res=await apiFetch('/api/improve-section',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({sectionId:id,currentText:origText,comment:comment})
     });
@@ -674,7 +698,7 @@ async function generatePDF(){
   var btn=document.getElementById('pdf-btn');
   btn.innerHTML='<span class="spinner"></span> Generating PDF…'; btn.disabled=true;
   try{
-    var res=await fetch('/api/generate',{
+    var res=await apiFetch('/api/generate',{
       method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
     });
     if(!res.ok){var e=await res.json();throw new Error(e.error||'Generation failed');}
