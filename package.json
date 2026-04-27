@@ -1,0 +1,15 @@
+{
+  "name": "quidnet-lp-pdf-generator",
+  "version": "1.0.0",
+  "description": "Quidnet LP Update Generator \u2014 PDF output (pure Node.js)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "docx": "^9.6.1",
+    "express": "*",
+    "node-fetch": "2",
+    "pdfkit": "*"
+  }
+}

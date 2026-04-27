@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: quidnet-lp-pdf-generator
+    env: node
+    buildCommand: npm install && pip install reportlab --break-system-packages
+    startCommand: node server.js
