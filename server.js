@@ -128,6 +128,34 @@ app.get('/api/airtable', async (req, res) => {
   }
 });
 
+
+// ── AI Draft (new section from prompt) ────────────────────────────────────────
+app.post('/api/draft-section', async (req, res) => {
+  const { section, prompt, system } = req.body;
+  const creds = getCredentials();
+  if (!creds.anthropicKey)
+    return res.status(400).json({ error: 'Anthropic API key not configured. Add it in Settings.' });
+  if (!prompt)
+    return res.status(400).json({ error: 'No prompt provided.' });
+
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': creds.anthropicKey, 'anthropic-version': '2023-06-01',
+                 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1024,
+        system: system || 'You are an expert VC communications writer for Quidnet Ventures, a New Zealand seed-stage deep tech fund. Write clear, professional prose. No markdown.',
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    if (!r.ok) return res.status(r.status).json({ error: await r.text() });
+    const data = await r.json();
+    res.json({ draftText: data.content?.[0]?.text?.trim() || '' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── AI section improver ────────────────────────────────────────────────────
 app.post('/api/improve-section', async (req, res) => {
   const { sectionId, currentText, comment } = req.body;
