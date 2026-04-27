@@ -748,30 +748,7 @@ window.addEventListener('DOMContentLoaded', function(){
   addPara('fundraising-paras');
   addPara('context-paras');
 });
-</script>
 
-<!-- Draft with AI modal -->
-<div id="draft-modal" class="modal-overlay hidden">
-  <div class="modal-box">
-    <div class="modal-header">
-      <h2>✦ Draft with AI</h2>
-      <button class="modal-close" onclick="closeDraftModal()">&times;</button>
-    </div>
-    <div class="modal-body">
-      <label id="draft-section-label">Section</label>
-      <div style="margin-bottom:14px;padding:8px 12px;background:var(--gray-100);border-radius:6px;font-size:12px;color:var(--gray-600);line-height:1.5" id="draft-context-hint"></div>
-      <label>What would you like Claude to write? <span style="font-weight:400;color:var(--gray-400)">Be as specific as you like</span></label>
-      <textarea id="draft-prompt" placeholder="e.g. Write 2 paragraphs about MacDiarmid Institute's annual symposium which QV attended. Highlight the photonics and quantum sessions and the connection to our portfolio."></textarea>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeDraftModal()">Cancel</button>
-      <button class="btn-draft-ai" id="draft-submit-btn" onclick="submitDraft()">✦ Draft it</button>
-    </div>
-  </div>
-</div>
-
-</body>
-</html>
 // ═══════════════════════════════════════════════════════
 // Draft with AI
 // ═══════════════════════════════════════════════════════
@@ -913,5 +890,27 @@ function insertDraftedText(section, text) {
     return;
   }
 }
+</script>
 
+<!-- Draft with AI modal -->
+<div id="draft-modal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>✦ Draft with AI</h2>
+      <button class="modal-close" onclick="closeDraftModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <label id="draft-section-label">Section</label>
+      <div style="margin-bottom:14px;padding:8px 12px;background:var(--gray-100);border-radius:6px;font-size:12px;color:var(--gray-600);line-height:1.5" id="draft-context-hint"></div>
+      <label>What would you like Claude to write? <span style="font-weight:400;color:var(--gray-400)">Be as specific as you like</span></label>
+      <textarea id="draft-prompt" placeholder="e.g. Write 2 paragraphs about MacDiarmid Institute's annual symposium which QV attended. Highlight the photonics and quantum sessions and the connection to our portfolio."></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeDraftModal()">Cancel</button>
+      <button class="btn-draft-ai" id="draft-submit-btn" onclick="submitDraft()">✦ Draft it</button>
+    </div>
+  </div>
+</div>
 
+</body>
+</html>
