@@ -114,6 +114,26 @@ textarea{resize:vertical;line-height:1.6}
   .btn-draft-ai:disabled{background:var(--gray-400);cursor:not-allowed}
   .draft-trigger{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:none;border:1.5px solid var(--amber);border-radius:7px;color:var(--amber);font-size:12px;font-weight:600;cursor:pointer;margin-bottom:14px}
   .draft-trigger:hover{background:var(--amber-light)}
+
+  /* Draft save/load bar */
+  .draft-bar{padding:10px 16px;background:rgba(255,255,255,.07);border-top:1px solid rgba(255,255,255,.1);border-bottom:1px solid rgba(255,255,255,.1);margin:0}
+  .draft-bar-title{font-size:10px;font-weight:700;color:rgba(255,255,255,.35);letter-spacing:.1em;text-transform:uppercase;margin-bottom:7px}
+  .draft-bar-btns{display:flex;gap:6px}
+  .btn-save-draft{flex:1;padding:7px 0;background:rgba(35,189,195,.2);border:1px solid rgba(35,189,195,.4);border-radius:6px;color:rgba(255,255,255,.85);font-size:11px;font-weight:600;cursor:pointer;text-align:center}
+  .btn-save-draft:hover{background:rgba(35,189,195,.35)}
+  .btn-load-draft{flex:1;padding:7px 0;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);border-radius:6px;color:rgba(255,255,255,.65);font-size:11px;font-weight:600;cursor:pointer;text-align:center}
+  .btn-load-draft:hover{background:rgba(255,255,255,.12);color:#fff}
+  .draft-saved-msg{font-size:10px;color:var(--teal);text-align:center;margin-top:5px;min-height:14px}
+
+  /* Draft picker modal */
+  .draft-list{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;margin-top:4px}
+  .draft-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;transition:all .15s;background:var(--off-white)}
+  .draft-item:hover{border-color:var(--teal);background:var(--teal-light)}
+  .draft-item-key{font-size:13px;font-weight:600;color:var(--deep-blue)}
+  .draft-item-date{font-size:11px;color:var(--gray-400);margin-top:2px}
+  .draft-item-del{background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:15px;padding:2px 4px;flex-shrink:0}
+  .draft-item-del:hover{color:var(--red)}
+  .draft-empty{text-align:center;padding:24px;color:var(--gray-400);font-size:13px}
 </style>
 </head>
 <body>
@@ -159,6 +179,15 @@ textarea{resize:vertical;line-height:1.6}
   <div class="nav-group-label">Output</div>
   <div class="nav-item" data-page="preview" onclick="openPreview()">
     <span class="dot" id="dot-preview"></span> Preview &amp; Edit
+  </div>
+
+  <div class="draft-bar">
+    <div class="draft-bar-title">Draft</div>
+    <div class="draft-bar-btns">
+      <button class="btn-save-draft" onclick="saveDraft()">💾 Save</button>
+      <button class="btn-load-draft" onclick="loadDraft()">📂 Load</button>
+    </div>
+    <div class="draft-saved-msg" id="draft-bar-msg"></div>
   </div>
 
   <div class="generate-btn">
@@ -749,6 +778,274 @@ window.addEventListener('DOMContentLoaded', function(){
   addPara('context-paras');
 });
 
+
+// ═══════════════════════════════════════════════════════
+// Save / Load Draft
+// ═══════════════════════════════════════════════════════
+
+function collectFullState() {
+  // Collect all dynamic paragraph textareas
+  function getParas(containerId) {
+    return [...document.querySelectorAll('#'+containerId+' textarea')].map(t=>t.value).filter(Boolean);
+  }
+  // Portfolio narrative paras per company
+  var portcoParas = portfolioData.map(function(c,i){
+    var el = document.getElementById('portco-paras-'+i);
+    return el ? el.value : '';
+  });
+  return {
+    quarter:    (document.getElementById('q-quarter')||{value:''}).value,
+    dateRange:  (document.getElementById('q-daterange')||{value:''}).value,
+    issueDate:  (document.getElementById('q-issuedate')||{value:''}).value,
+    fund:       getSelectedFund(),
+    openingParagraphs:     getParas('opening-paras'),
+    fundraisingParagraphs: getParas('fundraising-paras'),
+    marketContext:         getParas('context-paras'),
+    ecosystemIntro:        (document.getElementById('ecosystem-intro')||{value:''}).value,
+    pipeline:     pipelineData.map(function(p,i){
+      return { name:p.name, tag:p.tag,
+               text: (document.getElementById('pl-paras-'+i)||{value:''}).value };
+    }),
+    ecosystemItems: ecosystemData.map(function(e,i){
+      return { company:e.company,
+               text: (document.getElementById('eco-paras-'+i)||{value:''}).value };
+    }),
+    lookingAhead: aheadData.map(function(a,i){
+      return { heading: (document.getElementById('ah-head-'+i)||{value:a.heading}).value,
+               body:    (document.getElementById('ah-body-'+i)||{value:a.body}).value };
+    }),
+    portfolioData: portfolioData,
+    portcoParas:   portcoParas,
+    partnerNotes:  partnerNotes,
+    savedAt: new Date().toISOString(),
+  };
+}
+
+async function saveDraft() {
+  var state = collectFullState();
+  var msg   = document.getElementById('draft-bar-msg');
+  msg.textContent = 'Saving…';
+  try {
+    var res = await apiFetch('/api/save-draft', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(state)
+    });
+    if (!res.ok) { var e=await res.json(); throw new Error(e.error); }
+    var d = await res.json();
+    // Also cache in localStorage as offline backup
+    try { localStorage.setItem('qv_lp_draft_' + d.draftKey, JSON.stringify(state)); } catch(ex){}
+    var t = new Date(d.savedAt);
+    msg.textContent = '✓ Saved — ' + d.draftKey;
+    msg.style.color = 'var(--teal)';
+    setTimeout(function(){ msg.textContent=''; }, 5000);
+  } catch(e) {
+    msg.textContent = 'Save failed: ' + e.message;
+    msg.style.color = '#ff6b6b';
+    setTimeout(function(){ msg.textContent=''; }, 5000);
+  }
+}
+
+async function loadDraft() {
+  var msg = document.getElementById('draft-bar-msg');
+  msg.textContent = 'Loading…';
+
+  try {
+    var res = await apiFetch('/api/load-draft');
+    if (!res.ok) { var e=await res.json(); throw new Error(e.error); }
+    var data = await res.json();
+    var drafts = data.drafts || [];
+    msg.textContent = '';
+
+    if (!drafts.length) {
+      msg.textContent = 'No saved drafts';
+      msg.style.color = 'var(--gray-400)';
+      setTimeout(function(){ msg.textContent=''; }, 3000);
+      return;
+    }
+
+    // Show picker modal
+    renderDraftPicker(drafts);
+    document.getElementById('draft-picker-modal').classList.remove('hidden');
+
+  } catch(e) {
+    msg.textContent = 'Load failed: ' + e.message;
+    msg.style.color = '#ff6b6b';
+    setTimeout(function(){ msg.textContent=''; }, 4000);
+  }
+}
+
+function renderDraftPicker(drafts) {
+  var container = document.getElementById('draft-list-container');
+  if (!drafts.length) {
+    container.innerHTML = '<div class="draft-empty">No saved drafts found.</div>';
+    return;
+  }
+  var listEl = document.createElement('div');
+  listEl.className = 'draft-list';
+  drafts.forEach(function(d) {
+    var dateStr = d.savedAt ? new Date(d.savedAt).toLocaleString() : 'Unknown date';
+    var item = document.createElement('div');
+    item.className = 'draft-item';
+    item.dataset.id  = d.id;
+    item.dataset.key = d.draftKey;
+    item.onclick = function(){ selectDraft(this.dataset.id, this.dataset.key); };
+    item.innerHTML = '<div><div class="draft-item-key">'+esc(d.draftKey)+'</div>'
+      +'<div class="draft-item-date">Saved: '+dateStr+'</div></div>'
+      +'<button class="draft-item-del" title="Delete this draft">🗑</button>';
+    item.querySelector('.draft-item-del').onclick = function(e){
+      e.stopPropagation(); deleteDraft(d.id, this);
+    };
+    listEl.appendChild(item);
+  });
+  container.innerHTML = '';
+  container.appendChild(listEl);
+}
+
+async function selectDraft(id, draftKey) {
+  if (!confirm('Load "' + draftKey + '"?\n\nThis will replace any unsaved content.')) return;
+
+  document.getElementById('draft-picker-modal').classList.add('hidden');
+  var msg = document.getElementById('draft-bar-msg');
+  msg.textContent = 'Loading…';
+
+  try {
+    var res = await apiFetch('/api/load-draft/' + id);
+    if (!res.ok) { var e=await res.json(); throw new Error(e.error); }
+    var data = await res.json();
+    restoreState(data.draft);
+    msg.textContent = '✓ Loaded — ' + draftKey;
+    msg.style.color = 'var(--teal)';
+    setTimeout(function(){ msg.textContent=''; }, 5000);
+  } catch(e) {
+    msg.textContent = 'Load failed: ' + e.message;
+    msg.style.color = '#ff6b6b';
+    setTimeout(function(){ msg.textContent=''; }, 4000);
+  }
+}
+
+async function deleteDraft(id, btn) {
+  if (!confirm('Delete this draft? This cannot be undone.')) return;
+  btn.textContent = '…';
+  try {
+    await apiFetch('/api/save-draft/' + id, { method: 'DELETE' });
+    // Remove the item from the list
+    btn.closest('.draft-item').remove();
+    // Check if list is now empty
+    if (!document.querySelectorAll('.draft-item').length) {
+      document.getElementById('draft-list-container').innerHTML = '<div class="draft-empty">No saved drafts.</div>';
+    }
+  } catch(e) { alert('Delete failed: ' + e.message); btn.textContent = '🗑'; }
+}
+
+function restoreState(s) {
+  // Quarter & Fund
+  var qEl = document.getElementById('q-quarter');
+  var dEl = document.getElementById('q-daterange');
+  var iEl = document.getElementById('q-issuedate');
+  if (qEl && s.quarter)   qEl.value = s.quarter;
+  if (dEl && s.dateRange) dEl.value = s.dateRange;
+  if (iEl && s.issueDate) iEl.value = s.issueDate;
+  if (s.fund) {
+    var radios = document.querySelectorAll('input[name="q-fund"]');
+    radios.forEach(function(r){ r.checked = (r.value === s.fund); });
+  }
+
+  // Paragraph sections
+  function restoreParas(containerId, paras) {
+    var list = document.getElementById(containerId);
+    if (!list) return;
+    list.innerHTML = '';
+    (paras||[]).forEach(function(text){
+      var div = document.createElement('div');
+      div.className = 'item-card';
+      div.innerHTML = '<button class="remove-btn" onclick="this.parentElement.remove()">&times;</button>'
+        + '<textarea rows="4">'+esc(text)+'</textarea>';
+      list.appendChild(div);
+    });
+  }
+  restoreParas('opening-paras',     s.openingParagraphs);
+  restoreParas('fundraising-paras', s.fundraisingParagraphs);
+  restoreParas('context-paras',     s.marketContext);
+
+  // Ecosystem intro
+  var ecoIntroEl = document.getElementById('ecosystem-intro');
+  if (ecoIntroEl && s.ecosystemIntro) ecoIntroEl.value = s.ecosystemIntro;
+
+  // Pipeline
+  var pipeList = document.getElementById('pipeline-list');
+  if (pipeList) {
+    pipeList.innerHTML = '';
+    pipelineData.length = 0;
+    (s.pipeline||[]).forEach(function(p){
+      pipelineData.push({name:p.name||'', tag:p.tag||'', paragraphs:[]});
+      var i = pipelineData.length - 1;
+      var div = document.createElement('div');
+      div.className = 'item-card';
+      div.innerHTML = '<button class="remove-btn" onclick="this.parentElement.remove()">&times;</button>'
+        +'<div class="row-2" style="margin-bottom:10px">'
+        +'<div><label>Company name</label><input type="text" id="pl-name-'+i+'" value="'+esc(p.name||'')+'" oninput="pipelineData['+i+'].name=this.value" /></div>'
+        +'<div><label>Stage / tag</label><input type="text" id="pl-tag-'+i+'" value="'+esc(p.tag||'')+'" oninput="pipelineData['+i+'].tag=this.value" /></div>'
+        +'</div>'
+        +'<label>Description paragraphs</label>'
+        +'<textarea id="pl-paras-'+i+'" rows="4" oninput="pipelineData['+i+'].paragraphs=this.value.split(/\\n\\n+/).filter(Boolean)">'+esc(p.text||'')+'</textarea>';
+      pipeList.appendChild(div);
+    });
+  }
+
+  // Ecosystem items
+  var ecoList = document.getElementById('ecosystem-list');
+  if (ecoList) {
+    ecoList.innerHTML = '';
+    ecosystemData.length = 0;
+    (s.ecosystemItems||[]).forEach(function(e){
+      ecosystemData.push({company:e.company||'', paragraphs:[]});
+      var i = ecosystemData.length - 1;
+      var div = document.createElement('div');
+      div.className = 'item-card';
+      div.innerHTML = '<button class="remove-btn" onclick="this.parentElement.remove()">&times;</button>'
+        +'<div style="margin-bottom:10px"><label>Organisation / event</label>'
+        +'<input type="text" id="eco-name-'+i+'" value="'+esc(e.company||'')+'" oninput="ecosystemData['+i+'].company=this.value" /></div>'
+        +'<label>Notes</label>'
+        +'<textarea id="eco-paras-'+i+'" rows="3" oninput="ecosystemData['+i+'].paragraphs=this.value.split(/\\n\\n+/).filter(Boolean)">'+esc(e.text||'')+'</textarea>';
+      ecoList.appendChild(div);
+    });
+  }
+
+  // Looking ahead
+  var aheadList = document.getElementById('ahead-list');
+  if (aheadList) {
+    aheadList.innerHTML = '';
+    aheadData.length = 0;
+    (s.lookingAhead||[]).forEach(function(a){
+      aheadData.push({heading:a.heading||'', body:a.body||''});
+      var i = aheadData.length - 1;
+      var div = document.createElement('div');
+      div.className = 'item-card';
+      div.innerHTML = '<button class="remove-btn" onclick="this.parentElement.remove()">&times;</button>'
+        +'<div style="margin-bottom:10px"><label>Priority heading</label>'
+        +'<input type="text" id="ah-head-'+i+'" value="'+esc(a.heading||'')+'" oninput="aheadData['+i+'].heading=this.value" /></div>'
+        +'<label>Detail</label>'
+        +'<textarea id="ah-body-'+i+'" rows="3" oninput="aheadData['+i+'].body=this.value">'+esc(a.body||'')+'</textarea>';
+      aheadList.appendChild(div);
+    });
+  }
+
+  // Portfolio — restore Airtable data and narrative paras
+  if (s.portfolioData && s.portfolioData.length) {
+    portfolioData.length = 0;
+    s.portfolioData.forEach(function(c){ portfolioData.push(c); });
+    renderPortfolio();
+    // Now restore the narrative paras
+    (s.portcoParas||[]).forEach(function(text, i){
+      var el = document.getElementById('portco-paras-'+i);
+      if (el && text) el.value = text;
+    });
+  }
+
+  // Partner notes
+  Object.assign(partnerNotes, s.partnerNotes||{});
+}
+
 // ═══════════════════════════════════════════════════════
 // Draft with AI
 // ═══════════════════════════════════════════════════════
@@ -908,6 +1205,26 @@ function insertDraftedText(section, text) {
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeDraftModal()">Cancel</button>
       <button class="btn-draft-ai" id="draft-submit-btn" onclick="submitDraft()">✦ Draft it</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Draft picker modal -->
+<div id="draft-picker-modal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>📂 Load Draft</h2>
+      <button class="modal-close" onclick="document.getElementById('draft-picker-modal').classList.add('hidden')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--gray-600);margin-bottom:12px">Select a saved draft to restore. Drafts are named by Fund and Quarter.</p>
+      <div id="draft-list-container">
+        <div class="draft-empty">Loading drafts…</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="document.getElementById('draft-picker-modal').classList.add('hidden')">Cancel</button>
     </div>
   </div>
 </div>

@@ -187,6 +187,125 @@ app.post('/api/improve-section', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ── Draft persistence (Airtable) ──────────────────────────────────────────────
+// Drafts are stored in an Airtable table called "LP Drafts" with fields:
+//   Draft Key  (Single line text) — unique identifier e.g. "Fund I Q1 2026"
+//   Payload    (Long text)        — full JSON state
+//   Saved At   (Single line text) — ISO timestamp
+//
+// The table is created automatically on first save if it doesn't exist,
+// but you can also create it manually in Airtable first.
+
+const DRAFTS_TABLE = 'LP Drafts';
+
+async function findDraftRecord(airtableKey, baseId, apiKey, tableName) {
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}`
+            + `?filterByFormula=${encodeURIComponent(`{Draft Key}="${airtableKey}"`)}`;
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+  if (!r.ok) return null;
+  const data = await r.json();
+  return (data.records && data.records[0]) || null;
+}
+
+app.post('/api/save-draft', async (req, res) => {
+  const creds = getCredentials();
+  if (!creds.airtableKey || !creds.baseId)
+    return res.status(400).json({ error: 'Airtable not configured. Add API key and Base ID in Settings.' });
+
+  const state    = req.body;
+  const draftKey = `${state.fund || 'Fund I'} — ${state.quarter || 'Draft'}`;
+  const savedAt  = new Date().toISOString();
+  const payload  = JSON.stringify({ ...state, savedAt });
+
+  try {
+    // Check if a draft with this key already exists
+    const existing = await findDraftRecord(draftKey, creds.baseId, creds.airtableKey, DRAFTS_TABLE);
+
+    if (existing) {
+      // Update existing record
+      const updateUrl = `https://api.airtable.com/v0/${creds.baseId}/${encodeURIComponent(DRAFTS_TABLE)}/${existing.id}`;
+      const r = await fetch(updateUrl, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${creds.airtableKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { 'Payload': payload, 'Saved At': savedAt } })
+      });
+      if (!r.ok) throw new Error(await r.text());
+    } else {
+      // Create new record
+      const createUrl = `https://api.airtable.com/v0/${creds.baseId}/${encodeURIComponent(DRAFTS_TABLE)}`;
+      const r = await fetch(createUrl, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${creds.airtableKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { 'Draft Key': draftKey, 'Payload': payload, 'Saved At': savedAt } })
+      });
+      if (!r.ok) {
+        const errText = await r.text();
+        // If table doesn't exist, give a helpful message
+        if (errText.includes('Could not find table')) {
+          return res.status(400).json({ error: `Airtable table "${DRAFTS_TABLE}" not found. Please create it with fields: Draft Key (Single line text), Payload (Long text), Saved At (Single line text).` });
+        }
+        throw new Error(errText);
+      }
+    }
+
+    res.json({ ok: true, savedAt, draftKey });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/load-draft', async (req, res) => {
+  const creds = getCredentials();
+  if (!creds.airtableKey || !creds.baseId)
+    return res.status(400).json({ error: 'Airtable not configured.' });
+
+  const { fund, quarter } = req.query;
+
+  try {
+    const tableUrl = `https://api.airtable.com/v0/${creds.baseId}/${encodeURIComponent(DRAFTS_TABLE)}`
+                   + `?sort[0][field]=Saved+At&sort[0][direction]=desc`;
+    const r = await fetch(tableUrl, { headers: { Authorization: `Bearer ${creds.airtableKey}` } });
+    if (!r.ok) {
+      const errText = await r.text();
+      if (errText.includes('Could not find table'))
+        return res.json({ drafts: [] });
+      throw new Error(errText);
+    }
+    const data = await r.json();
+    const drafts = (data.records || []).map(rec => ({
+      id:       rec.id,
+      draftKey: rec.fields['Draft Key'] || '',
+      savedAt:  rec.fields['Saved At']  || '',
+    }));
+    res.json({ drafts });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/load-draft/:id', async (req, res) => {
+  const creds = getCredentials();
+  if (!creds.airtableKey || !creds.baseId)
+    return res.status(400).json({ error: 'Airtable not configured.' });
+
+  try {
+    const url = `https://api.airtable.com/v0/${creds.baseId}/${encodeURIComponent(DRAFTS_TABLE)}/${req.params.id}`;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${creds.airtableKey}` } });
+    if (!r.ok) throw new Error(await r.text());
+    const rec  = await r.json();
+    const draft = JSON.parse(rec.fields['Payload'] || '{}');
+    res.json({ draft });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/save-draft/:id', async (req, res) => {
+  const creds = getCredentials();
+  if (!creds.airtableKey || !creds.baseId)
+    return res.status(400).json({ error: 'Airtable not configured.' });
+  try {
+    const url = `https://api.airtable.com/v0/${creds.baseId}/${encodeURIComponent(DRAFTS_TABLE)}/${req.params.id}`;
+    await fetch(url, { method: 'DELETE', headers: { Authorization: `Bearer ${creds.airtableKey}` } });
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── PDF generation ─────────────────────────────────────────────────────────
 app.post('/api/generate', async (req, res) => {
   const payload  = req.body;
